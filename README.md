@@ -2,49 +2,42 @@
 
 ![PSScriptAnalyzer](https://github.com/Handover2AI/AzureImageGallery-ExportImportImage/actions/workflows/ci-workflow-psscriptanalyzer.yml/badge.svg)
 
-This script copies an existing image version from an Azure Shared Image Gallery in one tenant/subscription to another gallery in a different tenant/subscription. It uses a temporary managed disk and AzCopy to move the underlying VHD and then creates a new image version in the target gallery.
+This script copies an existing image version from an Azure Shared Image Gallery in one tenant/subscription to another gallery in a different tenant/subscription. It uses a temporary managed disk and AzCopy to move the underlying VHD and then creates a new image version in the target gallery with comprehensive support for Hyper-V Gen 2 and Trusted Launch security profiles
 
-## 🚀 Features
-
-- Uses **SAS URLs** and **AzCopy** for efficient disk transfer.
-- Supports **cross-tenant** and **cross-subscription** scenarios.
-- Creates a **new image version** in an existing target image definition.
-- Updates disk properties (e.g., accelerated networking) to match image requirements.
+## 🚀 Core Features
+- **Cross-Tenant Compatibility**: Handles independent authentication flow transitions securely.
+- **Trusted Launch Replication**: Automatically carries over Gen 2 Hyper-V configurations and TrustedLaunch security provisions.
+- **AzCopy Engine Support**: Interoperates with local installations of `azcopy.exe` to maximize data streaming velocities via Shared Access Signatures (SAS).
+- **Automated Validation**: Configures mandatory properties such as Accelerated Networking before injecting the virtual asset into the target gallery workspace.
 
 ## 📦 Prerequisites
+1. **Az PowerShell Module**: Ensure the `Az` module suite is active. Run `Install-Module -Name Az` if required.
+2. **AzCopy CLI Utility**: Download the executable and ensure its destination directory is accessible or configured natively within your parameter fields.
+3. **IAM Permissions**: 
+   - **Source Subscription**: Reader/Contributor privileges inside your compute framework to invoke SAS leases.
+   - **Target Subscription**: Contributor privileges inside target Resource Groups to construct target disks and update Compute Galleries.
 
-- PowerShell with the **Az** modules installed.
-- **AzCopy** installed and available in your `PATH`.
-- Permissions in both source and target subscriptions to:
-  - Read Shared Image Gallery image versions.
-  - Create and manage managed disks.
-  - Create image versions in the target gallery.
-- Network access to Azure Storage endpoints used by managed disks.
+## 🛠️ Parameters Reference
+| Parameter Name | Description | Default Profile Example |
+| :--- | :--- | :--- |
+| `SourceSubscriptionId` | ID of the origin subscription framework | `<subscriptionID>` |
+| `SourceResourceGroup` | Source resource group holding your image infrastructure | `rg-avd-images` |
+| `SourceGalleryName` | Target source gallery designation | `AVDCITTest` |
+| `SourceImageDefinition` | Image definition title | `AVD_VZ_Windows_11_CIS_TPM_Base_v2` |
+| `SourceVersionName` | Explicit gallery version tag to replicate | `1.0.0` |
+| `LocalVhdPath` | Hard drive location mapping temporary `.vhd` cache files | `C:\Users\...\Downloads\....vhd` |
+| `AzCopyPath` | Exact mapping route pointer pointing to `azcopy.exe` | `C:\...\azcopy.exe` |
+| `TargetSubscriptionId` | Destination framework workspace subscription ID | `<subscriptionID>` |
 
-## ⚙️ Parameters
-
-The script is parameterized. Key parameters:
-
-- `SourceSubscriptionId`, `SourceResourceGroup`, `SourceGalleryName`, `SourceImageDefinitionName`, `SourceImageVersionName`, `SourceLocation`
-- `TargetSubscriptionId`, `TargetResourceGroup`, `TargetGalleryName`, `TargetImageDefinitionName`, `TargetImageVersionName`, `TargetLocation`
-- Optional: `LocalVhdPath`, `SourceTempDiskName`, `TargetTempDiskName`, `SasDurationInSeconds`
-
-## 🧭 Usage
+## 🏗️Deployment Execution Context
+Execute the script straight from a standard administrative PowerShell session terminal window:
 
 ```powershell
 .\Copy-AzGalleryImageVersionAcrossTenants.ps1 `
-    -SourceSubscriptionId "00000000-0000-0000-0000-000000000000" `
-    -SourceResourceGroup "rg-source-gallery" `
-    -SourceGalleryName "sig-source" `
-    -SourceImageDefinitionName "win2022-base" `
-    -SourceImageVersionName "1.0.0" `
-    -SourceLocation "westeurope" `
-    -TargetSubscriptionId "11111111-1111-1111-1111-111111111111" `
-    -TargetResourceGroup "rg-target-gallery" `
-    -TargetGalleryName "sig-target" `
-    -TargetImageDefinitionName "win2022-base" `
-    -TargetImageVersionName "1.0.1" `
-    -TargetLocation "westeurope"
+  -SourceSubscriptionId "YOUR_SOURCE_SUB_ID" `
+  -TargetSubscriptionId "YOUR_TARGET_SUB_ID" `
+  -LocalVhdPath "D:\Cache\ImageMigration.vhd" `
+  -AzCopyPath "C:\Tools\azcopy.exe"
 ```
 
 ## 📝 Notes
@@ -54,7 +47,7 @@ The script is parameterized. Key parameters:
 - Clean up temporary disks and local VHDs if you no longer need them.
 - Do not commit any secrets or tenant-specific IDs you consider sensitive into the repository.
 
-## 📄 Project Governance
+## 🏛️ Project Governance
 
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Contributing Guidelines](CONTRIBUTING.md)
