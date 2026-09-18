@@ -29,7 +29,7 @@ This script copies an existing image version from an Azure Shared Image Gallery 
 | `AzCopyPath` | Exact mapping route pointer pointing to `azcopy.exe` | `C:\...\azcopy.exe` |
 | `TargetSubscriptionId` | Destination framework workspace subscription ID | `<subscriptionID>` |
 
-## 🏗️Deployment Execution Context
+## 🏗️ Deployment Execution Context
 Execute the script straight from a standard administrative PowerShell session terminal window:
 
 ```powershell
