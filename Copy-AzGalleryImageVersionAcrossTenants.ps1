@@ -1,195 +1,149 @@
-<#
-.SYNOPSIS
-    Copies an Azure Shared Image Gallery image version from one tenant/subscription
-    to another as a new image version, using a temporary managed disk and AzCopy.
+# Copy-AzGalleryImageVersionAcrossTenants.ps1
+# This script consolidates Export, Download, Upload, and Import actions for Azure Image Gallery versions.
 
-.DESCRIPTION
-    This script:
-    1. Connects to a source subscription and retrieves an existing image version.
-    2. Creates a temporary managed disk from that image version.
-    3. Generates a SAS URL and downloads the disk locally using AzCopy.
-    4. Switches to a target subscription and creates an empty managed disk.
-    5. Uploads the VHD to the target disk using AzCopy.
-    6. Updates disk properties (e.g., accelerated networking).
-    7. Creates a new image version in the target Shared Image Gallery.
-
-    AzCopy must be installed and available in PATH.
-
-.NOTES
-    Author:        Handover2AI-byExistence
-    Created:       24-Feb-26
-    Requirements:  Az PowerShell modules, AzCopy, appropriate RBAC permissions in both tenants.
-
-#>
-
-[CmdletBinding()]
 param(
-    # Source
-    [Parameter(Mandatory = $true)]
-    [string]$SourceSubscriptionId,
-
-    [Parameter(Mandatory = $true)]
-    [string]$SourceResourceGroup,
-
-    [Parameter(Mandatory = $true)]
-    [string]$SourceGalleryName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$SourceImageDefinitionName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$SourceImageVersionName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$SourceLocation,
-
-    # Target
-    [Parameter(Mandatory = $true)]
-    [string]$TargetSubscriptionId,
-
-    [Parameter(Mandatory = $true)]
-    [string]$TargetResourceGroup,
-
-    [Parameter(Mandatory = $true)]
-    [string]$TargetGalleryName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$TargetImageDefinitionName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$TargetLocation,
-
-    # New version name in target gallery
-    [Parameter(Mandatory = $true)]
-    [string]$TargetImageVersionName,
-
-    # Local path for temporary VHD
     [Parameter(Mandatory = $false)]
-    [string]$LocalVhdPath = "C:\temp\tempexportdisk.vhd",
-
-    # Temporary disk names
-    [Parameter(Mandatory = $false)]
-    [string]$SourceTempDiskName = "TempExportDisk",
+    [string]$SourceSubscriptionId = "<subscriptioID>",
 
     [Parameter(Mandatory = $false)]
-    [string]$TargetTempDiskName = "TempImportDisk",
+    [string]$SourceResourceGroup = "rg-avd-images",
 
-    # SAS validity in seconds
     [Parameter(Mandatory = $false)]
-    [int]$SasDurationInSeconds = 3600
+    [string]$SourceGalleryName = "AVDCITTest",
+
+    [Parameter(Mandatory = $false)]
+    [string]$SourceImageDefinition = "AVD_VZ_Windows_11_CIS_TPM_Base_v2",
+
+    [Parameter(Mandatory = $false)]
+    [string]$SourceVersionName = "1.0.0",
+
+    [Parameter(Mandatory = $false)]
+    [string]$SourceLocation = "westeurope",
+
+    [Parameter(Mandatory = $false)]
+    [string]$DiskExportName = "TempExportDisk",
+
+    [Parameter(Mandatory = $false)]
+    [string]$TargetSubscriptionId = "<subscriptioID>",
+
+    [Parameter(Mandatory = $false)]
+    [string]$TargetResourceGroup = "rg-avd-euw-shared-services",
+
+    [Parameter(Mandatory = $false)]
+    [string]$TargetImageGallery = "gal_avd_euw",
+
+    [Parameter(Mandatory = $false)]
+    [string]$TargetGalleryImageDefinitionName = "AVD_VZ_Windows_11_CIS_TPM_Base_v2",
+
+    [Parameter(Mandatory = $false)]
+    [string]$TargetVersionName = "1.0.0",
+
+    [Parameter(Mandatory = $false)]
+    [string]$DiskImportName = "TempImportDisk",
+
+    [Parameter(Mandatory = $false)]
+    [string]$TargetLocation = "westeurope",
+
+    [Parameter(Mandatory = $false)]
+    [string]$LocalVhdPath = "C:\Users\<username>\Downloads\AVD_VZ_Windows_11_CIS_TPM_Base_v2_1.0.0.vhd",
+
+    [Parameter(Mandatory = $false)]
+    [string]$AzCopyPath = "C:\Users\<username>\Downloads\azcopy_windows_amd64_10.32.1\azcopy.exe",
+
+    [Parameter(Mandatory = $false)]
+    [int]$SasDurationSeconds = 3600
 )
 
-function Ensure-Directory {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
+$ErrorActionPreference = "Stop"
 
-    $dir = Split-Path -Path $Path -Parent
-    if (-not (Test-Path -Path $dir)) {
-        Write-Verbose "Creating directory: $dir"
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-}
-
-Write-Host "Connecting to source subscription..." -ForegroundColor Cyan
-Connect-AzAccount | Out-Null
-Select-AzSubscription -SubscriptionId $SourceSubscriptionId | Out-Null
+Write-Host "=== Step 1: Connecting to Source Azure Account ===" -ForegroundColor Cyan
+Connect-AzAccount
+Select-AzSubscription -SubscriptionId $SourceSubscriptionId
 
 Write-Host "Retrieving source image version..." -ForegroundColor Cyan
 $sourceImgVer = Get-AzGalleryImageVersion `
-    -ResourceGroupName $SourceResourceGroup `
-    -GalleryName $SourceGalleryName `
-    -GalleryImageDefinitionName $SourceImageDefinitionName `
-    -Name $SourceImageVersionName
+  -ResourceGroupName $SourceResourceGroup `
+  -GalleryName $SourceGalleryName `
+  -GalleryImageDefinitionName $SourceImageDefinition `
+  -Name $SourceVersionName
 
-if (-not $sourceImgVer) {
-    throw "Source image version not found."
-}
-
-Write-Host "Creating temporary managed disk from source image version..." -ForegroundColor Cyan
+Write-Host "Creating temporary managed disk from image version..." -ForegroundColor Cyan
 $diskConfig = New-AzDiskConfig `
-    -Location $SourceLocation `
-    -CreateOption FromImage `
-    -GalleryImageReference @{ Id = $sourceImgVer.Id }
+  -Location $SourceLocation `
+  -CreateOption FromImage `
+  -GalleryImageReference @{Id = $sourceImgVer.Id} `
+  -HyperVGeneration V2
+
+$diskConfig = Set-AzDiskSecurityProfile `
+  -Disk $diskConfig `
+  -SecurityType "TrustedLaunch"
 
 $tempDisk = New-AzDisk `
-    -ResourceGroupName $SourceResourceGroup `
-    -DiskName $SourceTempDiskName `
-    -Disk $diskConfig
+  -ResourceGroupName $SourceResourceGroup `
+  -DiskName $DiskExportName `
+  -Disk $diskConfig
 
-Write-Host "Granting read access (SAS) to source disk..." -ForegroundColor Cyan
+Write-Host "Verifying source disk security settings..." -ForegroundColor Cyan
+$disk = Get-AzDisk -ResourceGroupName $SourceResourceGroup -DiskName $DiskExportName
+Write-Host "Disk Security Type: $($disk.SecurityProfile.SecurityType)" -ForegroundColor Green
+
+Write-Host "=== Step 2: Downloading Disk VHD locally ===" -ForegroundColor Cyan
 $sas = Grant-AzDiskAccess `
-    -ResourceGroupName $SourceResourceGroup `
-    -DiskName $SourceTempDiskName `
-    -DurationInSecond $SasDurationInSeconds `
-    -Access Read
+  -ResourceGroupName $SourceResourceGroup `
+  -DiskName $DiskExportName `
+  -DurationInSecond $SasDurationSeconds `
+  -Access Read
 
-if (-not $sas.AccessSAS) {
-    throw "Failed to obtain SAS URL for source disk."
+try {
+    Write-Host "Downloading VHD using AzCopy..." -ForegroundColor Yellow
+    & $AzCopyPath copy "$($sas.AccessSAS)" $LocalVhdPath
+}
+finally {
+    Write-Host "Revoking read access to source disk..." -ForegroundColor Cyan
+    Revoke-AzDiskAccess -ResourceGroupName $SourceResourceGroup -DiskName $DiskExportName
 }
 
-Ensure-Directory -Path $LocalVhdPath
-
-Write-Host "Downloading VHD using AzCopy..." -ForegroundColor Cyan
-$azCopyDownloadCmd = "azcopy.exe copy `"$($sas.AccessSAS)`" `"$LocalVhdPath`""
-Write-Host $azCopyDownloadCmd -ForegroundColor DarkGray
-& azcopy.exe copy "$($sas.AccessSAS)" "$LocalVhdPath"
-if ($LASTEXITCODE -ne 0) {
-    throw "AzCopy download failed with exit code $LASTEXITCODE."
-}
-
-Write-Host "Revoking access to source disk..." -ForegroundColor Cyan
-Revoke-AzDiskAccess -ResourceGroupName $SourceResourceGroup -DiskName $SourceTempDiskName | Out-Null
-
-Write-Host "Switching to target subscription..." -ForegroundColor Cyan
-Select-AzSubscription -SubscriptionId $TargetSubscriptionId | Out-Null
-
-if (-not (Test-Path $LocalVhdPath)) {
-    throw "Local VHD not found at $LocalVhdPath."
-}
+Write-Host "=== Step 3: Uploading and Importing to Target Image Gallery ===" -ForegroundColor Cyan
+Select-AzSubscription -SubscriptionId $TargetSubscriptionId
 
 $vhdSize = (Get-Item $LocalVhdPath).Length
 
-Write-Host "Creating empty managed disk in target subscription..." -ForegroundColor Cyan
-$diskConfig = New-AzDiskConfig `
+$targetDiskConfig = New-AzDiskConfig `
     -Location $TargetLocation `
     -CreateOption Upload `
     -UploadSizeInBytes $vhdSize `
-    -SkuName Premium_LRS
+    -SkuName Premium_LRS `
+    -HyperVGeneration V2
+
+$targetDiskConfig = Set-AzDiskSecurityProfile `
+    -Disk $targetDiskConfig `
+    -SecurityType "TrustedLaunch"
 
 $targetDisk = New-AzDisk `
     -ResourceGroupName $TargetResourceGroup `
-    -DiskName $TargetTempDiskName `
-    -Disk $diskConfig
+    -DiskName $DiskImportName `
+    -Disk $targetDiskConfig
 
-Write-Host "Granting write access (SAS) to target disk..." -ForegroundColor Cyan
-$sas = Grant-AzDiskAccess `
+$targetSas = Grant-AzDiskAccess `
     -ResourceGroupName $TargetResourceGroup `
-    -DiskName $TargetTempDiskName `
-    -DurationInSecond $SasDurationInSeconds `
+    -DiskName $DiskImportName `
+    -DurationInSecond $SasDurationSeconds `
     -Access Write
 
-if (-not $sas.AccessSAS) {
-    throw "Failed to obtain SAS URL for target disk."
+try {
+    Write-Host "Uploading VHD using AzCopy..." -ForegroundColor Yellow
+    & $AzCopyPath copy $LocalVhdPath "$($targetSas.AccessSAS)" --blob-type PageBlob
+}
+finally {
+    Write-Host "Revoking write access to target disk..." -ForegroundColor Cyan
+    Revoke-AzDiskAccess -ResourceGroupName $TargetResourceGroup -DiskName $DiskImportName
 }
 
-Write-Host "Uploading VHD to target disk using AzCopy..." -ForegroundColor Cyan
-$azCopyUploadCmd = "azcopy.exe copy `"$LocalVhdPath`" `"$($sas.AccessSAS)`" --blob-type PageBlob"
-Write-Host $azCopyUploadCmd -ForegroundColor DarkGray
-& azcopy.exe copy "$LocalVhdPath" "$($sas.AccessSAS)" --blob-type PageBlob
-if ($LASTEXITCODE -ne 0) {
-    throw "AzCopy upload failed with exit code $LASTEXITCODE."
-}
-
-Write-Host "Revoking access to target disk..." -ForegroundColor Cyan
-Revoke-AzDiskAccess -ResourceGroupName $TargetResourceGroup -DiskName $TargetTempDiskName | Out-Null
-
-Write-Host "Updating target disk properties (e.g., accelerated networking)..." -ForegroundColor Cyan
+Write-Host "Enabling Accelerated Networking on the target managed disk..." -ForegroundColor Cyan
 $diskUpdateConfig = New-AzDiskUpdateConfig -AcceleratedNetwork $true
-Update-AzDisk -ResourceGroupName $TargetResourceGroup -Name $TargetTempDiskName -DiskUpdate $diskUpdateConfig | Out-Null
+Update-AzDisk -ResourceGroupName $TargetResourceGroup -Name $DiskImportName -DiskUpdate $diskUpdateConfig
 
-Write-Host "Creating new image version in target gallery..." -ForegroundColor Cyan
+Write-Host "Publishing new image version to target Shared Image Gallery..." -ForegroundColor Cyan
 $osDisk = @{
     Source = @{
         Id = $targetDisk.Id
@@ -197,12 +151,12 @@ $osDisk = @{
 }
 
 New-AzGalleryImageVersion `
-    -ResourceGroupName $TargetResourceGroup `
-    -GalleryName $TargetGalleryName `
-    -GalleryImageDefinitionName $TargetImageDefinitionName `
-    -Name $TargetImageVersionName `
-    -Location $TargetLocation `
-    -OSDiskImage $osDisk `
-    -TargetRegion @{ Name = $TargetLocation } | Out-Null
+  -ResourceGroupName $TargetResourceGroup `
+  -GalleryName $TargetImageGallery `
+  -GalleryImageDefinitionName $TargetGalleryImageDefinitionName `
+  -Name $TargetVersionName `
+  -Location $TargetLocation `
+  -OSDiskImage $osDisk `
+  -TargetRegion @{Name = $TargetLocation}
 
-Write-Host "Done. New image version '$TargetImageVersionName' created in target gallery." -ForegroundColor Green
+Write-Host "Process completed successfully!" -ForegroundColor Green
